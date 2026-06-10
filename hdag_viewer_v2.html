@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HDAg Genotype 1 — 3D Structure Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --bg:#0d1117; --surface:#161b22; --surface2:#21262d;
+    --border:#30363d; --text:#e6edf3; --text2:#8b949e; --text3:#484f58;
+    --accent:#58a6ff; --accent-light:#0d2136;
+    --helix:#ff7b54; --sheet:#7ee787; --loop:#8b949e;
+    --highlight:#f0c040; --highlight-bg:#3a2e00;
+    --dimer:#00e5ff;    --dimer-bg:#002d33;
+    --multimer:#e040fb; --multimer-bg:#2d0033;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+  header { background:var(--surface); border-bottom:1px solid var(--border); padding:13px 28px; display:flex; align-items:center; gap:14px; flex-shrink:0; }
+  header h1 { font-size:1.05rem; font-weight:600; }
+  .badge { font-size:0.62rem; font-weight:500; background:var(--accent-light); color:var(--accent); padding:2px 8px; border-radius:20px; }
+  .pdb-tag { font-size:0.72rem; color:var(--text2); font-family:'JetBrains Mono',monospace; margin-left:auto; }
+
+  .main { display:flex; flex:1; overflow:hidden; }
+
+  /* Sidebar */
+  .sidebar { width:270px; min-width:270px; background:var(--surface); border-right:1px solid var(--border); padding:18px 16px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
+  .sec-title { font-size:0.67rem; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.6px; }
+  .info-box { background:var(--surface2); border-radius:7px; padding:10px 12px; font-size:0.72rem; color:var(--text2); line-height:1.6; }
+  .info-box strong { color:var(--text); font-weight:500; }
+
+  /* Chain legend */
+  .chain-list { display:flex; flex-direction:column; gap:5px; }
+  .chain-item { display:flex; align-items:center; gap:8px; font-size:0.72rem; }
+  .chain-swatch { width:24px; height:10px; border-radius:3px; flex-shrink:0; }
+
+  /* Residue highlight */
+  .field-group { display:flex; flex-direction:column; gap:6px; }
+  label { font-size:0.67rem; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.5px; }
+  .hint { font-size:0.63rem; color:var(--text3); margin-top:-3px; }
+  input[type=text] { font-family:'JetBrains Mono',monospace; font-size:0.78rem; background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:7px 10px; color:var(--text); width:100%; transition:border-color 0.15s; letter-spacing:1px; }
+  input[type=text]:focus { outline:none; border-color:var(--accent); }
+  .btn { background:var(--accent); color:#000; border:none; border-radius:6px; padding:8px 14px; font-family:'Inter',sans-serif; font-size:0.8rem; font-weight:600; cursor:pointer; transition:opacity 0.15s; width:100%; }
+  .btn:hover { opacity:0.85; }
+  .btn-ghost { background:transparent; color:var(--text2); border:1px solid var(--border); font-weight:400; }
+  .btn-ghost:hover { background:var(--surface2); opacity:1; }
+
+  /* Highlighted residue chips */
+  .chip-wrap { display:flex; flex-wrap:wrap; gap:4px; min-height:20px; }
+  .chip { background:var(--highlight-bg); border:1px solid var(--highlight); color:var(--highlight); font-size:0.65rem; font-family:'JetBrains Mono',monospace; padding:2px 7px; border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:4px; }
+  .chip:hover { background:#5a4500; }
+  .chip.dimer    { background:var(--dimer-bg);   border-color:var(--dimer);   color:var(--dimer); }
+  .chip.dimer:hover    { background:#004d5a; }
+  .chip.multimer { background:var(--multimer-bg); border-color:var(--multimer); color:var(--multimer); }
+  .chip.multimer:hover { background:#5a0066; }
+
+  /* SS legend */
+  .ss-legend { display:flex; flex-direction:column; gap:5px; }
+  .ss-item { display:flex; align-items:center; gap:8px; font-size:0.7rem; color:var(--text2); }
+  .ss-swatch { width:24px; height:8px; border-radius:2px; }
+
+  /* Loading */
+  .load-msg { font-size:0.75rem; color:var(--text3); text-align:center; padding:8px 0; }
+
+  /* Viewport */
+  .viewport { flex:1; position:relative; background:#050810; }
+  #three-canvas { display:block; width:100%; height:100%; }
+  .empty-state { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; pointer-events:none; }
+  .empty-icon { font-size:3rem; opacity:0.25; }
+  .empty-state p { font-size:0.8rem; color:var(--text3); }
+
+  /* Tooltip */
+  #tooltip { position:absolute; pointer-events:none; display:none; background:rgba(22,27,34,0.95); border:1px solid var(--border); border-radius:7px; padding:6px 12px; font-size:0.72rem; color:var(--text); backdrop-filter:blur(6px); z-index:100; max-width:200px; line-height:1.5; }
+  #tooltip.show { display:block; }
+
+  /* View controls */
+  .view-controls { position:absolute; bottom:16px; right:16px; display:flex; flex-direction:column; gap:5px; }
+  .view-btn { background:rgba(22,27,34,0.88); border:1px solid var(--border); color:var(--text2); width:32px; height:32px; border-radius:6px; font-size:0.95rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.15s; backdrop-filter:blur(4px); }
+  .view-btn:hover { color:var(--text); background:rgba(33,38,45,0.97); }
+
+  /* Context menu */
+  .ctx-menu { position:fixed; background:rgba(22,27,34,0.97); border:1px solid var(--border); border-radius:8px; padding:4px; z-index:9999; display:none; flex-direction:column; gap:1px; min-width:170px; backdrop-filter:blur(8px); box-shadow:0 8px 24px rgba(0,0,0,0.5); }
+  .ctx-menu.show { display:flex; }
+  .ctx-item { display:flex; align-items:center; gap:9px; padding:7px 11px; border-radius:5px; font-size:0.77rem; color:var(--text); cursor:pointer; transition:background 0.1s; }
+  .ctx-item:hover { background:var(--surface2); }
+  .ctx-sep { height:1px; background:var(--border); margin:3px 0; }
+
+  /* Toast */
+  #toast { position:fixed; top:66px; left:50%; transform:translateX(-50%); font-size:0.77rem; font-weight:600; padding:6px 16px; border-radius:20px; z-index:9999; pointer-events:none; transition:opacity 0.4s; opacity:0; color:#000; }
+
+  /* Structure info overlay */
+  .struct-info { position:absolute; top:14px; left:14px; background:rgba(13,17,23,0.88); border:1px solid var(--border); border-radius:8px; padding:10px 14px; display:none; flex-direction:column; gap:4px; backdrop-filter:blur(6px); }
+  .struct-info.show { display:flex; }
+  .si-row { display:flex; justify-content:space-between; gap:16px; font-size:0.68rem; }
+  .si-label { color:var(--text2); }
+  .si-value { color:var(--text); font-family:'JetBrains Mono',monospace; font-weight:500; }
+
+  .controls-hint { font-size:0.63rem; color:var(--text3); line-height:1.6; border-top:1px solid var(--border); padding-top:12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HDAg 9PRC — Itskanov et al. 2026</h1>
+  <span class="badge">PDB 9PRC · cryo-EM · 2026</span>
+  <div class="pdb-tag">PDB 9PRC · HDAg-OD octamer + 86-pRNA · cryo-EM · Itskanov PNAS 2026</div>
+</header>
+
+<div class="main">
+  <aside class="sidebar">
+
+    <div class="field-group">
+      <div class="sec-title">Structure</div>
+      <div class="info-box">
+        <strong>PDB 9PRC — Itskanov et al., PNAS 2026</strong><br><br>
+        Real cryo-EM structure: HDAg-OD octamer (A–H) + 86-pRNA (J, K, M, P).<br><br>
+        <b>Protein chains A–H:</b> HDAg-OD (res 12–63)<br>
+        <b>RNA chains J, K, M, P:</b> 86-pRNA segments<br><br>
+        <span style="color:var(--text3);font-size:0.64rem">
+        • Octamer ~75×75×35 Å · 12 RNA contact sites<br>
+        • Ladder-like RNP · Virion ~35×32 nm
+        </span><br>
+        <a href="https://doi.org/10.1073/pnas.2519809123" target="_blank"
+           style="color:var(--accent);font-size:0.65rem">doi:10.1073/pnas.2519809123 ↗</a><br>
+        <div id="load-status" class="load-msg">Building structure…</div>
+    </div>
+
+    <div class="field-group" id="chain-section" style="display:none">
+      <div class="sec-title">Chains</div>
+      <div class="chain-list" id="chain-list"></div>
+    </div>
+
+    <div class="field-group">
+      <div class="sec-title">Secondary Structure</div>
+      <div class="ss-legend">
+        <div class="ss-item"><div class="ss-swatch" style="background:var(--helix)"></div>α-Helix (coiled-coil)</div>
+        <div class="ss-item"><div class="ss-swatch" style="background:var(--sheet)"></div>β-Sheet</div>
+        <div class="ss-item"><div class="ss-swatch" style="background:var(--loop)"></div>Loop / coil</div>
+      </div>
+    </div>
+
+    <div class="field-group" id="highlight-section" style="display:none">
+      <div class="sec-title">Highlight Residues</div>
+      <div class="hint">e.g. W20A · 20 · A:20 · 38,39,40</div>
+      <input type="text" id="res-input" placeholder="e.g. W20A, 38, A:60" />
+      <button class="btn" onclick="applyHighlight()">Highlight</button>
+      <button class="btn btn-ghost" onclick="clearHighlight()">Clear</button>
+      <div class="chip-wrap" id="chip-wrap"></div>
+    </div>
+
+    <div class="field-group">
+      <div class="sec-title">Biologically Important Residues</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('38,39,40','RNA binding (Lys38/39/40)')">Lys38/39/40 — RNA binding (1A92)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60','HDAg-OD (12–60)')">HDAg-OD — octamer domain (12–60)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('66,67,68,69,70,71,72,73,74,75','NLS (66–75)')">NLS — nuclear localization (66–75)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146','RBD (97–146)')">RBD — RNA-binding domain (97–146)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195','C-terminal (147–195)')">C-terminal IDR — Pol II binding (147–195)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119','ARM1 (89–119)')">ARM1 — arginine-rich helix (89–119)</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px" onclick="quickHL('126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146','ARM2 (126–146)')">ARM2 — arginine-rich helix (126–146)</button></div>
+    </div>
+
+    <div class="field-group">
+      <div class="sec-title">Oligomerization Residues</div>
+      <div class="info-box" style="margin-bottom:6px;font-size:0.68rem;line-height:1.55">
+        Published mutational data (Zuccola et al. 1998; Cornillez-Ty et al. 2009).<br>
+        <span style="color:var(--dimer)">●</span> <strong style="color:var(--text)">Dimer interface:</strong> R13, W20, R24, W50, L51<br>
+        <span style="color:var(--multimer)">●</span> <strong style="color:var(--text)">Multimer contacts:</strong> L17, V21, W50, I54, I57
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px;border-color:var(--dimer);color:var(--dimer)"
+          onclick="oligoHL('dimer','13,20,24,50,51','Dimerization interface (R13/W20/R24/W50/L51)')">
+          ⬡ Dimerization interface — R13, W20, R24, W50, L51
+        </button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px;border-color:var(--multimer);color:var(--multimer)"
+          onclick="oligoHL('multimer','17,21,50,54,57','Multimerization contacts (L17/V21/W50/I54/I57)')">
+          ⬡ Multimerization contacts — L17, V21, W50, I54, I57
+        </button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;text-align:left;padding:6px 10px"
+          onclick="oligoHL('both','13,17,20,21,24,50,51,54,57','All oligomerization residues')">
+          ⬡ Show all oligomerization residues
+        </button>
+      </div>
+      <div class="chip-wrap" id="oligo-chip-wrap"></div>
+    </div>
+
+    <div class="controls-hint">
+      <strong style="color:var(--text2)">Navigation</strong><br>
+      Left-drag · rotate &nbsp;|&nbsp; Scroll · zoom<br>
+      Right-drag · pan &nbsp;|&nbsp; Hover · inspect residue<br>
+      Right-click · copy image
+    </div>
+  </aside>
+
+  <div class="viewport" id="viewport">
+    <canvas id="three-canvas"></canvas>
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🧬</div>
+      <p>Fetching PDB 1A92 from RCSB…</p>
+    </div>
+
+    <div class="struct-info" id="struct-info">
+      <div class="si-row"><span class="si-label">Structure</span><span class="si-value">PDB 9PRC</span></div>
+      <div class="si-row"><span class="si-label">Chains</span><span class="si-value" id="si-chains">—</span></div>
+      <div class="si-row"><span class="si-label">Residues</span><span class="si-value" id="si-res">—</span></div>
+      <div class="si-row"><span class="si-label">Atoms</span><span class="si-value" id="si-atoms">—</span></div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <div class="ctx-menu" id="ctx-menu">
+      <div class="ctx-item" onclick="copyImage()">📋 Copy image <span style="font-size:0.62rem;color:var(--text3);margin-left:auto">Ctrl+V in PPT</span></div>
+      <div class="ctx-item" onclick="saveImage()">⬇ Save PNG</div>
+      <div class="ctx-sep"></div>
+      <div class="ctx-item" onclick="resetCam();closeCtx()">⟳ Reset view</div>
+    </div>
+
+    <div class="view-controls">
+      <button class="view-btn" title="Reset view" onclick="resetCam()">⟳</button>
+      <button class="view-btn" title="Top view" onclick="topView()">⊤</button>
+      <button class="view-btn" title="Side view" onclick="sideView()">◫</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// PDB PARSER
+// ═══════════════════════════════════════════
+function parsePDB(text) {
+  const atoms = [];
+  const helices = []; // {chain, start, end}
+  const sheets  = [];
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    const rec = line.substring(0,6).trim();
+
+    if (rec === 'ATOM' || rec === 'HETATM') {
+      const serial  = parseInt(line.substring(6,11));
+      const name    = line.substring(12,16).trim();
+      const resName = line.substring(17,20).trim();
+      const chain   = line.substring(21,22).trim();
+      const resSeq  = parseInt(line.substring(22,26));
+      const x       = parseFloat(line.substring(30,38));
+      const y       = parseFloat(line.substring(38,46));
+      const z       = parseFloat(line.substring(46,54));
+      atoms.push({ serial, name, resName, chain, resSeq, x, y, z, rec });
+    }
+    if (rec === 'HELIX') {
+      helices.push({
+        chain: line.substring(19,20).trim(),
+        start: parseInt(line.substring(21,25)),
+        end:   parseInt(line.substring(33,37))
+      });
+    }
+    if (rec === 'SHEET') {
+      sheets.push({
+        chain: line.substring(21,22).trim(),
+        start: parseInt(line.substring(22,26)),
+        end:   parseInt(line.substring(33,37))
+      });
+    }
+  }
+  return { atoms, helices, sheets };
+}
+
+function getSSType(chain, resSeq, helices, sheets) {
+  for (const h of helices)
+    if (h.chain === chain && resSeq >= h.start && resSeq <= h.end) return 'helix';
+  for (const s of sheets)
+    if (s.chain === chain && resSeq >= s.start && resSeq <= s.end) return 'sheet';
+  return 'loop';
+}
+
+// Get Cα atoms grouped by chain → array of {resSeq, resName, x,y,z, ss}
+function getCalphas(atoms, helices, sheets) {
+  const byChain = {};
+  for (const a of atoms) {
+    // Support both PDB-parsed (name field) and embedded (name='CA' always) formats
+    if (a.name !== 'CA') continue;
+    // Skip HETATM records if present
+    if (a.rec && a.rec === 'HETATM') continue;
+    if (!byChain[a.chain]) byChain[a.chain] = [];
+    byChain[a.chain].push({
+      resSeq: a.resSeq, resName: a.resName,
+      x: a.x, y: a.y, z: a.z,
+      ss: getSSType(a.chain, a.resSeq, helices, sheets)
+    });
+  }
+  for (const c of Object.keys(byChain))
+    byChain[c].sort((a,b) => a.resSeq - b.resSeq);
+  return byChain;
+}
+
+// ═══════════════════════════════════════════
+// COLOUR SCHEME
+// ═══════════════════════════════════════════
+const CHAIN_COLORS = [
+  0xff7b54, 0x58a6ff, 0x7ee787, 0xd2a8ff,
+  0xf0c040, 0xff9966, 0x66ccff, 0xaaffaa
+];
+const SS_COLORS = { helix: 0xff7b54, sheet: 0x7ee787, loop: 0x6e7680 };
+const HIGHLIGHT_COLOR = 0xf0c040;
+
+// ═══════════════════════════════════════════
+// THREE.JS GLOBALS
+// ═══════════════════════════════════════════
+let scene, camera, renderer, structGroup;
+let isDragging=false, isRightDrag=false, lastMouse={x:0,y:0};
+let camTheta=0.4, camPhi=1.2, camR=60, camTarget=new THREE.Vector3(0,0,0);
+let pdbData = null;
+let highlightedResidues = new Set();
+let chainColorMap = {};
+let residueMeshes = []; // [{resSeq, chain, mesh}]
+let raycaster, mouse;
+
+// Oligomerization highlight sets
+const DIMER_RESIDUES    = new Set([13,20,24,50,51]);
+const MULTIMER_RESIDUES = new Set([17,21,50,54,57]);
+const DIMER_COLOR     = 0x00e5ff;
+const MULTIMER_COLOR  = 0xe040fb;
+const OVERLAP_COLOR   = 0xffffff; // W50 is in both sets — render white
+let oligoHighlightMeshes = [];
+
+function initThree() {
+  const vp = document.getElementById('viewport');
+  const canvas = document.getElementById('three-canvas');
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias:true, preserveDrawingBuffer:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  resizeRenderer();
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050810);
+
+  camera = new THREE.PerspectiveCamera(40, vp.clientWidth/vp.clientHeight, 0.1, 1000);
+  updateCam();
+
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(20, 40, 30); scene.add(dir);
+  const fill = new THREE.DirectionalLight(0x8ab4ff, 0.3);
+  fill.position.set(-20,-10,-20); scene.add(fill);
+  const rim = new THREE.PointLight(0x58a6ff, 0.5, 200);
+  rim.position.set(0, 60, 0); scene.add(rim);
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+
+  canvas.addEventListener('mousedown', onMD);
+  canvas.addEventListener('mousemove', onMM);
+  canvas.addEventListener('mouseup', ()=>isDragging=false);
+  canvas.addEventListener('mouseleave', ()=>{ isDragging=false; hideTooltip(); });
+  canvas.addEventListener('wheel', onWheel, {passive:true});
+  canvas.addEventListener('dblclick', resetCam);
+  canvas.addEventListener('contextmenu', onCtx);
+  window.addEventListener('resize', resizeRenderer);
+
+  renderLoop();
+}
+
+function resizeRenderer() {
+  const vp = document.getElementById('viewport');
+  renderer.setSize(vp.clientWidth, vp.clientHeight);
+  if (camera) { camera.aspect = vp.clientWidth/vp.clientHeight; camera.updateProjectionMatrix(); }
+}
+
+function updateCam() {
+  const x = camR * Math.sin(camPhi) * Math.sin(camTheta);
+  const y = camR * Math.cos(camPhi);
+  const z = camR * Math.sin(camPhi) * Math.cos(camTheta);
+  camera.position.set(camTarget.x+x, camTarget.y+y, camTarget.z+z);
+  camera.lookAt(camTarget);
+}
+
+function onMD(e) { isDragging=true; isRightDrag=e.button===2; lastMouse={x:e.clientX,y:e.clientY}; }
+function onMM(e) {
+  // Hover tooltip
+  const vp = document.getElementById('viewport');
+  const rect = vp.getBoundingClientRect();
+  mouse.x =  ((e.clientX-rect.left)/rect.width)  * 2 - 1;
+  mouse.y = -((e.clientY-rect.top) /rect.height) * 2 + 1;
+  handleHover(e.clientX, e.clientY);
+
+  if (!isDragging) return;
+  const dx = (e.clientX-lastMouse.x)*0.006;
+  const dy = (e.clientY-lastMouse.y)*0.006;
+  lastMouse = {x:e.clientX, y:e.clientY};
+  if (isRightDrag) {
+    const right = new THREE.Vector3();
+    camera.getWorldDirection(right);
+    right.cross(camera.up).normalize();
+    const up = camera.up.clone().normalize();
+    camTarget.addScaledVector(right, -dx*camR*0.25);
+    camTarget.addScaledVector(up, dy*camR*0.25);
+  } else {
+    camTheta -= dx;
+    camPhi = Math.max(0.1, Math.min(Math.PI-0.1, camPhi+dy));
+  }
+  updateCam();
+}
+function onWheel(e) { camR = Math.max(5, Math.min(300, camR+e.deltaY*0.08)); updateCam(); }
+function resetCam() { camTheta=0.4; camPhi=1.2; camR=60; camTarget.set(0,0,0); updateCam(); }
+function topView()  { camPhi=0.15; updateCam(); }
+function sideView() { camPhi=Math.PI/2; camTheta=0; updateCam(); }
+
+function renderLoop() {
+  requestAnimationFrame(renderLoop);
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════
+// HOVER / TOOLTIP
+// ═══════════════════════════════════════════
+function handleHover(mx, my) {
+  if (!residueMeshes.length) return;
+  raycaster.setFromCamera(mouse, camera);
+  const meshes = residueMeshes.map(r=>r.mesh).filter(Boolean);
+  const hits = raycaster.intersectObjects(meshes, true);
+  const tip = document.getElementById('tooltip');
+  if (hits.length) {
+    const hit = hits[0].object;
+    // find residue data
+    const rd = residueMeshes.find(r => r.mesh === hit || (r.mesh && r.mesh.children && r.mesh.children.includes(hit)));
+    if (rd) {
+      const isDimer    = DIMER_RESIDUES.has(rd.resSeq);
+      const isMultimer = MULTIMER_RESIDUES.has(rd.resSeq);
+      let oligoTag = '';
+      if (isDimer && isMultimer) oligoTag = '<br><span style="color:#ffffff;font-size:0.63rem">⬡ Dimer &amp; Multimer interface</span>';
+      else if (isDimer)          oligoTag = '<br><span style="color:var(--dimer);font-size:0.63rem">⬡ Dimerization interface</span>';
+      else if (isMultimer)       oligoTag = '<br><span style="color:var(--multimer);font-size:0.63rem">⬡ Multimerization contact</span>';
+      tip.innerHTML = `<strong>Chain ${rd.chain}</strong> &nbsp;·&nbsp; ${rd.resName} <span style="font-family:JetBrains Mono;color:var(--accent)">${rd.resSeq}</span><br><span style="color:var(--text3);font-size:0.65rem">${rd.ss === 'helix' ? 'α-Helix' : rd.ss === 'sheet' ? 'β-Sheet' : 'Loop/Coil'}</span>${oligoTag}`;
+      tip.style.left = (mx+14)+'px';
+      tip.style.top  = (my-10)+'px';
+      tip.classList.add('show');
+      return;
+    }
+  }
+  tip.classList.remove('show');
+}
+function hideTooltip() { document.getElementById('tooltip').classList.remove('show'); }
+
+// ═══════════════════════════════════════════
+// BUILD CARTOON STRUCTURE
+// ═══════════════════════════════════════════
+function makeSphere(pos, r, color) {
+  const geo = new THREE.SphereGeometry(r, 14, 10);
+  const mat = new THREE.MeshStandardMaterial({color, roughness:0.35, metalness:0.1});
+  const m = new THREE.Mesh(geo, mat);
+  m.position.copy(pos);
+  return m;
+}
+
+function makeCylinder(from, to, r, color, opacity) {
+  const dir = new THREE.Vector3().subVectors(to, from);
+  const len = dir.length();
+  if (len < 0.001) return null;
+  const geo = new THREE.CylinderGeometry(r, r, len, 10, 1);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness:0.4, metalness:0.05, transparent:opacity<1, opacity:opacity??1 });
+  const m = new THREE.Mesh(geo, mat);
+  m.position.copy(new THREE.Vector3().addVectors(from,to).multiplyScalar(0.5));
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
+  return m;
+}
+
+function makeTube(pts, r, color) {
+  if (pts.length < 2) return null;
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const geo = new THREE.TubeGeometry(curve, pts.length*3, r, 8, false);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness:0.4, metalness:0.05 });
+  return new THREE.Mesh(geo, mat);
+}
+
+function makeRibbon(frames, hw, ht, color) {
+  const pos=[], nrm=[], idx=[];
+  const n = frames.length;
+  for (const {p, r, u} of frames) {
+    pos.push(p.x+r.x*hw+u.x*ht, p.y+r.y*hw+u.y*ht, p.z+r.z*hw+u.z*ht,
+             p.x-r.x*hw+u.x*ht, p.y-r.y*hw+u.y*ht, p.z-r.z*hw+u.z*ht,
+             p.x+r.x*hw-u.x*ht, p.y+r.y*hw-u.y*ht, p.z+r.z*hw-u.z*ht,
+             p.x-r.x*hw-u.x*ht, p.y-r.y*hw-u.y*ht, p.z-r.z*hw-u.z*ht);
+    for(let k=0;k<2;k++) nrm.push(u.x,u.y,u.z);
+    for(let k=0;k<2;k++) nrm.push(-u.x,-u.y,-u.z);
+  }
+  for (let i=0;i<n-1;i++) {
+    const b=i*4, b2=b+4;
+    idx.push(b,b2,b+1, b+1,b2,b2+1);
+    idx.push(b+2,b+3,b2+2, b+3,b2+3,b2+2);
+    idx.push(b+1,b2+1,b+3, b+3,b2+1,b2+3);
+    idx.push(b,b+2,b2, b+2,b2+2,b2);
+  }
+  idx.push(0,1,2,1,3,2);
+  const L=(n-1)*4; idx.push(L,L+2,L+1,L+1,L+2,L+3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('normal',   new THREE.Float32BufferAttribute(nrm,3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({ color, roughness:0.3, metalness:0.08, side:THREE.DoubleSide });
+  return new THREE.Mesh(geo, mat);
+}
+
+// Smooth a path of Vector3s
+function smoothPath(pts, n) {
+  if (pts.length < 2) return pts;
+  const curve = new THREE.CatmullRomCurve3(pts);
+  return curve.getPoints(n);
+}
+
+// Compute Frenet-like frames along a curve
+function computeFrames(pts) {
+  const frames = [];
+  for (let i=0; i<pts.length; i++) {
+    const prev = pts[Math.max(0,i-1)];
+    const next = pts[Math.min(pts.length-1,i+1)];
+    const tangent = next.clone().sub(prev).normalize();
+    const up = new THREE.Vector3(0,1,0);
+    let right = new THREE.Vector3().crossVectors(tangent, up).normalize();
+    if (right.length() < 0.01) right = new THREE.Vector3(1,0,0);
+    const u = new THREE.Vector3().crossVectors(right, tangent).normalize();
+    frames.push({ p: pts[i], r: right, u });
+  }
+  return frames;
+}
+
+function buildStructure(pdb) {
+  if (structGroup) scene.remove(structGroup);
+  structGroup = new THREE.Group();
+  residueMeshes = [];
+  oligoHighlightMeshes = [];
+  activeOligoMode = null;
+  document.getElementById('oligo-chip-wrap').innerHTML = '';
+
+  const caByChain = getCalphas(pdb.atoms, pdb.helices, pdb.sheets);
+  const chains = Object.keys(caByChain).sort();
+
+  // Assign chain colors
+  chainColorMap = {};
+  chains.forEach((c,i) => chainColorMap[c] = CHAIN_COLORS[i % CHAIN_COLORS.length]);
+
+  // Update chain legend
+  const chainList = document.getElementById('chain-list');
+  chainList.innerHTML = '';
+  chains.forEach(c => {
+    const col = '#'+chainColorMap[c].toString(16).padStart(6,'0');
+    chainList.innerHTML += `<div class="chain-item"><div class="chain-swatch" style="background:${col}"></div>Chain ${c} (${caByChain[c].length} res)</div>`;
+  });
+  document.getElementById('chain-section').style.display = 'block';
+  document.getElementById('highlight-section').style.display = 'block';
+
+  // Stats
+  const totalRes  = chains.reduce((s,c)=>s+caByChain[c].length,0);
+  const totalAtom = pdb.atoms.filter(a=>a.rec==='ATOM').length;
+  document.getElementById('si-chains').textContent = chains.join(', ');
+  document.getElementById('si-res').textContent    = totalRes;
+  document.getElementById('si-atoms').textContent  = totalAtom;
+  document.getElementById('struct-info').classList.add('show');
+
+  // Center structure
+  let cx=0,cy=0,cz=0,cnt=0;
+  for (const c of chains) for (const r of caByChain[c]) { cx+=r.x;cy+=r.y;cz+=r.z;cnt++; }
+  cx/=cnt; cy/=cnt; cz/=cnt;
+
+  // Build per-chain cartoon
+  for (const chain of chains) {
+    const residues = caByChain[chain];
+    if (residues.length < 2) continue;
+    const chainColor = chainColorMap[chain];
+
+    // Group residues into SS segments
+    let segments = [];
+    let seg = [residues[0]];
+    for (let i=1; i<residues.length; i++) {
+      if (residues[i].ss === seg[0].ss) {
+        seg.push(residues[i]);
+      } else {
+        segments.push([...seg]);
+        seg = [residues[i-1], residues[i]]; // overlap for continuity
+      }
+    }
+    segments.push(seg);
+
+    for (const seg of segments) {
+      const ss = seg[0].ss;
+      const pts = seg.map(r => new THREE.Vector3(r.x-cx, r.y-cy, r.z-cz));
+      const smoothPts = smoothPath(pts, Math.max(pts.length*4, 12));
+      const frames    = computeFrames(smoothPts);
+      const color = SS_COLORS[ss];
+
+      let mesh;
+      if (ss === 'helix') {
+        // Wide flat ribbon for helices
+        mesh = makeRibbon(frames, 1.2, 0.35, color);
+        if (mesh) structGroup.add(mesh);
+      } else if (ss === 'sheet') {
+        // Medium ribbon for sheets
+        mesh = makeRibbon(frames, 0.9, 0.3, color);
+        if (mesh) structGroup.add(mesh);
+      } else {
+        // Thin tube for loops
+        mesh = makeTube(smoothPts, 0.2, color);
+        if (mesh) structGroup.add(mesh);
+      }
+    }
+
+    // Per-residue invisible hit spheres for hover/highlight
+    for (const r of residues) {
+      const geo = new THREE.SphereGeometry(1.2, 8, 6);
+      const mat = new THREE.MeshStandardMaterial({ color: chainColor, transparent:true, opacity:0.0, depthWrite:false });
+      const m   = new THREE.Mesh(geo, mat);
+      m.position.set(r.x-cx, r.y-cy, r.z-cz);
+      structGroup.add(m);
+      residueMeshes.push({ resSeq:r.resSeq, resName:r.resName, chain, ss:r.ss, mesh:m, x:r.x-cx, y:r.y-cy, z:r.z-cz });
+    }
+  }
+
+
+  // ── RNA backbone (rnaAtoms) ──
+  if (pdb.rnaAtoms && pdb.rnaAtoms.length) {
+    const rnaByChain = {};
+    for (const a of pdb.rnaAtoms) {
+      if (!rnaByChain[a.chain]) rnaByChain[a.chain] = [];
+      rnaByChain[a.chain].push(a);
+    }
+    const rnaColors = [0x58a6ff, 0x7ee787, 0xd2a8ff, 0xff9966];
+    let ri = 0;
+    for (const rc of Object.keys(rnaByChain).sort()) {
+      const nts = rnaByChain[rc].sort((a,b)=>a.resSeq-b.resSeq);
+      const col = rnaColors[ri++ % rnaColors.length];
+      const pts = nts.map(a=>new THREE.Vector3(a.x-cx,a.y-cy,a.z-cz));
+      const tube = makeTube(pts, 0.38, col);
+      if (tube) structGroup.add(tube);
+      for (const nt of nts) {
+        const sp = makeSphere(new THREE.Vector3(nt.x-cx,nt.y-cy,nt.z-cz), 0.55, col);
+        structGroup.add(sp);
+        residueMeshes.push({resSeq:nt.resSeq,resName:nt.resName,chain:rc,ss:'RNA',
+                            mesh:sp,x:nt.x-cx,y:nt.y-cy,z:nt.z-cz});
+      }
+    }
+  }
+
+  scene.add(structGroup);
+
+  // Auto-fit camera
+  const box = new THREE.Box3().setFromObject(structGroup);
+  const size = box.getSize(new THREE.Vector3()).length();
+  camR = size * 1.4;
+  resetCam();
+}
+
+// ═══════════════════════════════════════════
+// HIGHLIGHT
+// ═══════════════════════════════════════════
+let highlightMeshes = [];
+
+// Parse residue tokens like: "20", "W20", "W20A", "TRP20A", "20A", "A:20"
+// Returns array of {resSeq, chain} objects; chain=null means match any chain
+function parseResTokens(raw) {
+  const tokens = raw.split(/[\s,;]+/).filter(Boolean);
+  const results = [];
+  for (const tok of tokens) {
+    // Format: [chain:]([letters][number][letters])
+    let t = tok.trim();
+    let chain = null;
+    // Optional chain prefix: "A:20" or "A:W20"
+    const colonMatch = t.match(/^([A-Ha-hJjKkMmPp]):(.+)$/);
+    if (colonMatch) { chain = colonMatch[1].toUpperCase(); t = colonMatch[2]; }
+    // Extract residue number — find digits in the string
+    const numMatch = t.match(/\d+/);
+    if (numMatch) {
+      const resSeq = parseInt(numMatch[0]);
+      // Extract trailing chain letter if no colon prefix: "W20A" -> chain A
+      if (!chain) {
+        const trailingChain = t.match(/\d+([A-Ha-hJjKkMmPp])$/);
+        if (trailingChain) chain = trailingChain[1].toUpperCase();
+      }
+      if (!isNaN(resSeq)) results.push({resSeq, chain});
+    }
+  }
+  return results;
+}
+
+function applyHighlight() {
+  const raw = document.getElementById('res-input').value;
+  const tokens = parseResTokens(raw);
+  // Store as "resSeq:chain" or "resSeq:*" strings for precise matching
+  tokens.forEach(({resSeq, chain}) => {
+    highlightedResidues.add(resSeq + ':' + (chain || '*'));
+  });
+  document.getElementById('res-input').value = '';
+  renderHighlights();
+}
+
+function quickHL(str, label) {
+  clearHighlight();
+  str.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)).forEach(n => {
+    highlightedResidues.add(n + ':*');
+  });
+  renderHighlights();
+}
+
+function clearHighlight() {
+  highlightedResidues.clear();
+  renderHighlights();
+}
+
+function removeChip(key) {
+  highlightedResidues.delete(key);
+  renderHighlights();
+}
+
+// ─── Oligomerization highlights ───────────────────────────────────────────
+let activeOligoMode = null; // 'dimer' | 'multimer' | 'both' | null
+
+function oligoHL(mode, resStr, label) {
+  // Toggle off if same mode clicked again
+  if (activeOligoMode === mode) {
+    activeOligoMode = null;
+    renderOligoHighlights();
+    return;
+  }
+  activeOligoMode = mode;
+  renderOligoHighlights();
+  toast('Showing ' + label, mode === 'dimer' ? '#00e5ff' : mode === 'multimer' ? '#e040fb' : '#ffffff');
+}
+
+function renderOligoHighlights() {
+  // Remove old meshes
+  for (const m of oligoHighlightMeshes) structGroup && structGroup.remove(m);
+  oligoHighlightMeshes = [];
+
+  // Rebuild chips
+  const wrap = document.getElementById('oligo-chip-wrap');
+  wrap.innerHTML = '';
+
+  if (!activeOligoMode || !structGroup) return;
+
+  const dimerRes    = [13,20,24,50,51];
+  const multimerRes = [17,21,50,54,57];
+  let residuesToShow = [];
+
+  if (activeOligoMode === 'dimer')    residuesToShow = dimerRes.map(n=>({n,cls:'dimer'}));
+  else if (activeOligoMode === 'multimer') residuesToShow = multimerRes.map(n=>({n,cls:'multimer'}));
+  else { // both
+    const all = new Set([...dimerRes, ...multimerRes]);
+    residuesToShow = [...all].sort((a,b)=>a-b).map(n=>({n, cls: dimerRes.includes(n) && multimerRes.includes(n) ? 'both' : dimerRes.includes(n) ? 'dimer' : 'multimer'}));
+  }
+
+  // Residue name lookup helper
+  const getName = seq => {
+    const rd = residueMeshes.find(r => r.resSeq === seq && r.chain === 'A');
+    return rd ? rd.resName : String(seq);
+  };
+
+  for (const {n, cls} of residuesToShow) {
+    const rName = getName(n);
+    const chipCls = cls === 'both' ? 'chip dimer' : 'chip ' + cls; // white-ish for overlap shown as dimer chip
+    wrap.innerHTML += `<div class="${chipCls}">${rName}${n}</div>`;
+  }
+
+  // Place glowing spheres on ALL chains (A–H)
+  for (const {n, cls} of residuesToShow) {
+    const color = cls === 'both' ? OVERLAP_COLOR : cls === 'dimer' ? DIMER_COLOR : MULTIMER_COLOR;
+    const matches = residueMeshes.filter(r => r.resSeq === n && r.ss !== 'RNA');
+    for (const rd of matches) {
+      const geo = new THREE.SphereGeometry(2.4, 18, 14);
+      const mat = new THREE.MeshStandardMaterial({
+        color, emissive: color,
+        emissiveIntensity: 0.9, roughness: 0.12, metalness: 0.0,
+        transparent: true, opacity: 0.88
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(rd.x, rd.y, rd.z);
+      structGroup.add(m);
+      oligoHighlightMeshes.push(m);
+    }
+  }
+
+  if (oligoHighlightMeshes.length === 0) {
+    toast('No matching residues in structure', '#d29922');
+  }
+}
+
+function renderHighlights() {
+  // Remove old highlight meshes
+  for (const m of highlightMeshes) structGroup && structGroup.remove(m);
+  highlightMeshes = [];
+  if (!structGroup) return;
+
+  // Rebuild chips
+  const chipWrap = document.getElementById('chip-wrap');
+  chipWrap.innerHTML = '';
+  for (const key of [...highlightedResidues].sort()) {
+    const [seqStr, chain] = key.split(':');
+    const resSeq = parseInt(seqStr);
+    const rd = residueMeshes.find(r => r.resSeq === resSeq && (chain === '*' || r.chain === chain));
+    const label = rd
+      ? (chain !== '*' ? `${rd.resName}${resSeq} (${chain})` : `${rd.resName}${resSeq}`)
+      : key;
+    chipWrap.innerHTML += `<div class="chip" onclick="removeChip('${key}')">✕ ${label}</div>`;
+  }
+
+  // Add glowing spheres at each matched residue
+  for (const key of highlightedResidues) {
+    const [seqStr, chain] = key.split(':');
+    const resSeq = parseInt(seqStr);
+    const matches = residueMeshes.filter(r =>
+      r.resSeq === resSeq && (chain === '*' || r.chain === chain)
+    );
+    for (const rd of matches) {
+      const geo = new THREE.SphereGeometry(2.2, 18, 14);
+      const mat = new THREE.MeshStandardMaterial({
+        color: HIGHLIGHT_COLOR, emissive: HIGHLIGHT_COLOR,
+        emissiveIntensity: 0.8, roughness:0.15, metalness:0.0,
+        transparent: true, opacity: 0.90
+      });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(rd.x, rd.y, rd.z);
+      structGroup.add(m);
+      highlightMeshes.push(m);
+    }
+  }
+
+  if (highlightMeshes.length === 0 && highlightedResidues.size > 0) {
+    toast('No matching residues found in structure', '#d29922');
+  }
+}
+
+// ═══════════════════════════════════════════
+// CONTEXT MENU & IMAGE CAPTURE
+// ═══════════════════════════════════════════
+function onCtx(e) {
+  e.preventDefault();
+  const menu = document.getElementById('ctx-menu');
+  menu.style.left = Math.min(e.clientX, window.innerWidth-185)+'px';
+  menu.style.top  = Math.min(e.clientY, window.innerHeight-110)+'px';
+  menu.classList.add('show');
+  setTimeout(()=>document.addEventListener('click', closeCtx, {once:true}), 0);
+}
+function closeCtx() { document.getElementById('ctx-menu').classList.remove('show'); }
+
+function getDataURL() {
+  renderer.render(scene, camera);
+  return document.getElementById('three-canvas').toDataURL('image/png');
+}
+function urlToBlob(url) {
+  const b = atob(url.split(',')[1]);
+  const arr = new Uint8Array(b.length);
+  for (let i=0;i<b.length;i++) arr[i]=b.charCodeAt(i);
+  return new Blob([arr], {type:'image/png'});
+}
+function copyImage() {
+  closeCtx();
+  const blob = urlToBlob(getDataURL());
+  navigator.clipboard.write([new ClipboardItem({'image/png':Promise.resolve(blob)})])
+    .then(()=>toast('✓ Image copied — paste with Ctrl+V','#3fb950'))
+    .catch(()=>{ saveImage(); toast('Clipboard blocked — saved as PNG instead','#d29922'); });
+}
+function saveImage() {
+  closeCtx();
+  const a = document.createElement('a');
+  a.download = 'hdag_1A92.png';
+  a.href = getDataURL();
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+function toast(msg, color) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.background = color||'#3fb950';
+  t.style.opacity='1';
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>t.style.opacity='0', 2800);
+}
+
+// ═══════════════════════════════════════════
+// FETCH & LOAD PDB
+// ═══════════════════════════════════════════
+// ── Embedded 1A92 structural data (coiled-coil Cα coordinates) ──
+// Sequence: GREDILEQWVSGRKKLEELERDLRKLKKKIKKLEEDNPWLGNIKGIIGKY
+// 4 chains (A-D), residues 12-61, antiparallel coiled-coil dimer
+const EMBEDDED_9PRC = {"atoms":[{"name":"CA","resName":"GLY","chain":"A","resSeq":12,"x":146.233,"y":206.088,"z":175.263,"b":64.11,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"A","resSeq":13,"x":147.676,"y":203.65,"z":172.737,"b":60.62,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":14,"x":149.509,"y":206.167,"z":170.541,"b":58.23,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":15,"x":151.601,"y":207.423,"z":173.467,"b":61.02,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"A","resSeq":16,"x":152.597,"y":203.892,"z":174.476,"b":60.17,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":17,"x":153.482,"y":203.036,"z":170.879,"b":58.7,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":18,"x":155.664,"y":206.148,"z":170.713,"b":62.02,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"A","resSeq":19,"x":157.425,"y":205.196,"z":173.949,"b":63.05,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"A","resSeq":20,"x":158.026,"y":201.638,"z":172.73,"b":63.25,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"A","resSeq":21,"x":159.366,"y":202.775,"z":169.35,"b":61.02,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"A","resSeq":22,"x":161.704,"y":205.332,"z":170.925,"b":63.89,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"A","resSeq":23,"x":162.921,"y":202.683,"z":173.357,"b":67.1,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"A","resSeq":24,"x":163.664,"y":200.287,"z":170.505,"b":66.72,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":25,"x":165.585,"y":202.959,"z":168.595,"b":68.51,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":26,"x":167.627,"y":203.846,"z":171.682,"b":72.54,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":27,"x":168.3,"y":200.148,"z":172.294,"b":73.89,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":28,"x":169.617,"y":199.685,"z":168.76,"b":79.91,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":29,"x":171.834,"y":202.76,"z":169.153,"b":82.07,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":30,"x":173.19,"y":201.424,"z":172.449,"b":80.34,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":31,"x":173.899,"y":198.027,"z":170.888,"b":85.02,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"A","resSeq":32,"x":175.808,"y":199.666,"z":168.031,"b":89.13,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"A","resSeq":33,"x":177.864,"y":201.722,"z":170.486,"b":84.24,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":34,"x":178.51,"y":198.553,"z":172.501,"b":80.19,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"A","resSeq":35,"x":179.83,"y":196.801,"z":169.393,"b":81.63,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":36,"x":182.068,"y":199.726,"z":168.441,"b":78.86,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"A","resSeq":37,"x":183.551,"y":200.037,"z":171.932,"b":76.65,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":38,"x":184.124,"y":196.28,"z":172.147,"b":73.64,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":39,"x":185.975,"y":196.356,"z":168.825,"b":77.01,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":40,"x":188.099,"y":199.304,"z":169.97,"b":73.04,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"A","resSeq":41,"x":189.008,"y":197.638,"z":173.273,"b":70.01,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":42,"x":189.859,"y":194.359,"z":171.539,"b":75.56,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":43,"x":192.091,"y":196.185,"z":169.055,"b":73.64,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":44,"x":193.835,"y":198.076,"z":171.863,"b":71.04,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":45,"x":194.493,"y":194.905,"z":173.857,"b":66.11,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"A","resSeq":46,"x":195.692,"y":193.199,"z":170.666,"b":73.02,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"A","resSeq":47,"x":198.255,"y":195.83,"z":169.649,"b":73.2,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"A","resSeq":48,"x":199.746,"y":196.128,"z":173.148,"b":68.33,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"A","resSeq":49,"x":200.179,"y":192.74,"z":174.873,"b":64.69,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"A","resSeq":50,"x":201.128,"y":194.264,"z":178.242,"b":62.81,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":51,"x":197.498,"y":195.309,"z":178.67,"b":62.04,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"A","resSeq":52,"x":196.946,"y":191.7,"z":179.716,"b":62.05,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"A","resSeq":53,"x":199.375,"y":192.199,"z":182.591,"b":60.75,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"A","resSeq":54,"x":197.57,"y":195.477,"z":183.292,"b":58.86,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":55,"x":194.287,"y":193.57,"z":183.561,"b":60.62,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"A","resSeq":56,"x":195.957,"y":191.012,"z":185.809,"b":59.49,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"A","resSeq":57,"x":197.215,"y":193.631,"z":188.245,"b":56.72,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"A","resSeq":58,"x":193.845,"y":195.411,"z":188.047,"b":54.84,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"A","resSeq":59,"x":191.787,"y":192.357,"z":188.971,"b":59.14,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":60,"x":194.152,"y":191.047,"z":191.662,"b":59.71,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":61,"x":192.17,"y":192.534,"z":194.532,"b":63.26,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"A","resSeq":62,"x":193.73,"y":191.608,"z":197.866,"b":70.03,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"A","resSeq":63,"x":194.173,"y":192.802,"z":201.451,"b":76.65,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"B","resSeq":12,"x":203.342,"y":206.221,"z":174.597,"b":62.82,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"B","resSeq":13,"x":202.29,"y":203.577,"z":177.105,"b":60.48,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":14,"x":200.363,"y":206.063,"z":179.252,"b":62.51,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":15,"x":198.305,"y":207.311,"z":176.299,"b":63.64,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"B","resSeq":16,"x":197.341,"y":203.761,"z":175.314,"b":61.91,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":17,"x":196.429,"y":202.954,"z":178.914,"b":60.05,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":18,"x":194.243,"y":206.064,"z":179.086,"b":62.45,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"B","resSeq":19,"x":192.466,"y":205.138,"z":175.855,"b":63.33,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"B","resSeq":20,"x":191.871,"y":201.583,"z":177.08,"b":62.23,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"B","resSeq":21,"x":190.565,"y":202.674,"z":180.49,"b":60.8,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"B","resSeq":22,"x":188.24,"y":205.283,"z":178.987,"b":63.58,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"B","resSeq":23,"x":186.973,"y":202.656,"z":176.559,"b":66.68,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"B","resSeq":24,"x":186.249,"y":200.285,"z":179.438,"b":65.75,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":25,"x":184.347,"y":202.96,"z":181.362,"b":69.84,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":26,"x":182.305,"y":203.902,"z":178.292,"b":72.27,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":27,"x":181.602,"y":200.207,"z":177.683,"b":73.91,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":28,"x":180.303,"y":199.785,"z":181.229,"b":79.15,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":29,"x":178.091,"y":202.872,"z":180.945,"b":82.14,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":30,"x":176.707,"y":201.715,"z":177.591,"b":80.18,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":31,"x":175.975,"y":198.237,"z":178.94,"b":85.24,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"B","resSeq":32,"x":174.141,"y":199.685,"z":181.949,"b":89.48,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"B","resSeq":33,"x":172.057,"y":201.912,"z":179.674,"b":85.23,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":34,"x":171.315,"y":198.954,"z":177.392,"b":79.71,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"B","resSeq":35,"x":170.123,"y":196.886,"z":180.355,"b":82.78,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":36,"x":167.857,"y":199.724,"z":181.488,"b":80.22,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"B","resSeq":37,"x":166.38,"y":200.112,"z":178.0,"b":77.67,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":38,"x":165.82,"y":196.356,"z":177.686,"b":77.07,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":39,"x":164.011,"y":196.358,"z":181.03,"b":81.39,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":40,"x":161.827,"y":199.308,"z":180.006,"b":74.19,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"B","resSeq":41,"x":160.934,"y":197.702,"z":176.665,"b":71.77,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":42,"x":160.083,"y":194.398,"z":178.347,"b":77.02,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":43,"x":157.832,"y":196.205,"z":180.825,"b":75.66,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":44,"x":156.099,"y":198.088,"z":178.003,"b":71.74,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":45,"x":155.454,"y":194.899,"z":176.039,"b":67.96,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"B","resSeq":46,"x":154.275,"y":193.217,"z":179.25,"b":74.8,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"B","resSeq":47,"x":151.652,"y":195.792,"z":180.25,"b":74.58,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"B","resSeq":48,"x":150.16,"y":196.067,"z":176.751,"b":69.09,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"B","resSeq":49,"x":149.676,"y":192.754,"z":174.898,"b":66.16,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"B","resSeq":50,"x":148.683,"y":194.475,"z":171.642,"b":62.6,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":51,"x":152.352,"y":195.365,"z":171.21,"b":62.43,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"B","resSeq":52,"x":152.652,"y":191.742,"z":170.113,"b":62.54,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"B","resSeq":53,"x":150.309,"y":192.421,"z":167.202,"b":61.64,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"B","resSeq":54,"x":152.185,"y":195.667,"z":166.561,"b":59.01,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":55,"x":155.477,"y":193.778,"z":166.315,"b":59.92,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"B","resSeq":56,"x":153.858,"y":191.131,"z":164.129,"b":59.35,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"B","resSeq":57,"x":152.599,"y":193.652,"z":161.593,"b":58.28,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"B","resSeq":58,"x":155.928,"y":195.491,"z":161.888,"b":56.62,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"B","resSeq":59,"x":158.028,"y":192.425,"z":161.065,"b":60.07,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":60,"x":156.257,"y":191.436,"z":157.841,"b":62.05,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":61,"x":157.72,"y":191.94,"z":154.359,"b":65.52,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"B","resSeq":62,"x":156.612,"y":193.019,"z":150.896,"b":69.67,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"B","resSeq":63,"x":153.854,"y":190.904,"z":149.363,"b":69.12,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"C","resSeq":12,"x":187.613,"y":199.159,"z":193.163,"b":53.57,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"C","resSeq":13,"x":190.904,"y":199.065,"z":191.291,"b":51.94,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":14,"x":189.476,"y":199.905,"z":187.858,"b":55.55,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":15,"x":187.801,"y":203.125,"z":189.002,"b":57.68,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"C","resSeq":16,"x":190.94,"y":204.227,"z":190.853,"b":49.3,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":17,"x":193.051,"y":203.562,"z":187.767,"b":49.48,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":18,"x":190.616,"y":205.663,"z":185.739,"b":53.44,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"C","resSeq":19,"x":190.841,"y":208.466,"z":188.305,"b":52.92,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"C","resSeq":20,"x":194.642,"y":208.374,"z":188.35,"b":47.87,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"C","resSeq":21,"x":195.098,"y":208.303,"z":184.577,"b":48.62,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"C","resSeq":22,"x":192.556,"y":211.081,"z":183.997,"b":50.44,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"C","resSeq":23,"x":194.178,"y":213.143,"z":186.744,"b":48.27,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"C","resSeq":24,"x":197.595,"y":212.672,"z":185.167,"b":48.62,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":25,"x":196.275,"y":213.773,"z":181.773,"b":51.61,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":26,"x":194.699,"y":216.812,"z":183.434,"b":49.91,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":27,"x":198.036,"y":217.52,"z":185.131,"b":47.9,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":28,"x":199.806,"y":217.399,"z":181.768,"b":54.76,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":29,"x":197.272,"y":219.782,"z":180.229,"b":57.1,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":30,"x":197.556,"y":222.129,"z":183.214,"b":51.14,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":31,"x":201.348,"y":222.132,"z":182.934,"b":55.81,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"C","resSeq":32,"x":201.215,"y":222.976,"z":179.227,"b":59.47,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"C","resSeq":33,"x":198.665,"y":225.745,"z":179.769,"b":60.17,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":34,"x":200.682,"y":227.179,"z":182.661,"b":53.69,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"C","resSeq":35,"x":203.777,"y":227.219,"z":180.453,"b":57.86,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":36,"x":201.899,"y":229.115,"z":177.739,"b":57.56,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"C","resSeq":37,"x":200.468,"y":231.611,"z":180.238,"b":53.12,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":38,"x":203.899,"y":232.184,"z":181.771,"b":53.59,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":39,"x":205.347,"y":232.812,"z":178.31,"b":56.43,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":40,"x":202.655,"y":235.376,"z":177.475,"b":56.17,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"C","resSeq":41,"x":203.081,"y":237.156,"z":180.813,"b":51.31,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":42,"x":206.85,"y":237.198,"z":180.242,"b":54.05,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":43,"x":206.289,"y":238.819,"z":176.842,"b":55.36,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":44,"x":203.918,"y":241.468,"z":178.206,"b":50.61,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":45,"x":206.072,"y":242.236,"z":181.246,"b":48.6,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"C","resSeq":46,"x":209.221,"y":242.595,"z":179.168,"b":55.24,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"C","resSeq":47,"x":208.027,"y":244.891,"z":176.38,"b":54.61,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"C","resSeq":48,"x":206.656,"y":247.476,"z":178.823,"b":49.38,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"C","resSeq":49,"x":208.388,"y":248.67,"z":182.013,"b":50.47,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"C","resSeq":50,"x":205.248,"y":250.652,"z":182.832,"b":47.13,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":51,"x":203.631,"y":247.24,"z":183.236,"b":45.92,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"C","resSeq":52,"x":206.201,"y":246.649,"z":185.96,"b":46.38,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"C","resSeq":53,"x":205.221,"y":249.994,"z":187.457,"b":46.43,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"C","resSeq":54,"x":201.575,"y":248.898,"z":187.45,"b":45.69,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":55,"x":202.578,"y":245.643,"z":189.138,"b":47.49,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"C","resSeq":56,"x":204.464,"y":247.62,"z":191.774,"b":46.64,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"C","resSeq":57,"x":201.497,"y":249.862,"z":192.516,"b":46.11,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"C","resSeq":58,"x":199.156,"y":246.84,"z":192.546,"b":44.53,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"C","resSeq":59,"x":201.352,"y":245.375,"z":195.258,"b":47.97,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":60,"x":201.134,"y":248.31,"z":197.662,"b":48.7,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"C","resSeq":61,"x":201.943,"y":252.013,"z":197.911,"b":53.47,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"D","resSeq":12,"x":196.282,"y":250.626,"z":172.788,"b":48.47,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"D","resSeq":13,"x":198.296,"y":250.453,"z":176.001,"b":46.21,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":14,"x":195.125,"y":249.854,"z":178.023,"b":47.41,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":15,"x":194.609,"y":246.759,"z":175.86,"b":51.72,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"D","resSeq":16,"x":198.061,"y":245.558,"z":176.921,"b":49.48,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":17,"x":197.072,"y":246.104,"z":180.554,"b":46.11,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":18,"x":193.861,"y":244.132,"z":180.023,"b":50.91,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"D","resSeq":19,"x":195.759,"y":241.226,"z":178.469,"b":50.53,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"D","resSeq":20,"x":198.29,"y":241.291,"z":181.312,"b":47.91,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"D","resSeq":21,"x":195.579,"y":241.211,"z":183.982,"b":46.93,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"D","resSeq":22,"x":193.697,"y":238.395,"z":182.249,"b":47.24,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"D","resSeq":23,"x":196.943,"y":236.447,"z":182.002,"b":48.57,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"D","resSeq":24,"x":197.722,"y":236.979,"z":185.684,"b":46.34,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":25,"x":194.272,"y":235.789,"z":186.766,"b":49.34,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":26,"x":194.556,"y":232.744,"z":184.5,"b":47.3,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":27,"x":198.006,"y":232.031,"z":185.946,"b":45.46,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":28,"x":196.696,"y":232.141,"z":189.512,"b":46.47,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":29,"x":193.777,"y":229.853,"z":188.673,"b":48.3,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":30,"x":196.043,"y":227.395,"z":186.849,"b":46.36,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":31,"x":198.464,"y":227.391,"z":189.78,"b":47.08,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"D","resSeq":32,"x":195.664,"y":226.526,"z":192.2,"b":46.82,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"D","resSeq":33,"x":194.319,"y":223.816,"z":189.885,"b":47.86,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":34,"x":197.802,"y":222.344,"z":189.452,"b":45.63,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"D","resSeq":35,"x":198.32,"y":222.262,"z":193.213,"b":45.6,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":36,"x":194.97,"y":220.517,"z":193.698,"b":44.82,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"D","resSeq":37,"x":195.641,"y":217.919,"z":190.995,"b":41.1,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":38,"x":199.157,"y":217.299,"z":192.304,"b":41.38,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":39,"x":197.722,"y":216.672,"z":195.766,"b":41.0,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":40,"x":195.098,"y":214.301,"z":194.351,"b":39.93,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"D","resSeq":41,"x":197.589,"y":212.259,"z":192.32,"b":37.53,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":42,"x":200.011,"y":212.194,"z":195.247,"b":39.85,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":43,"x":197.347,"y":210.821,"z":197.591,"b":40.82,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":44,"x":196.227,"y":208.247,"z":195.01,"b":40.3,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":45,"x":199.764,"y":206.992,"z":194.439,"b":40.84,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"D","resSeq":46,"x":200.551,"y":207.112,"z":198.16,"b":42.46,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"D","resSeq":47,"x":197.71,"y":204.847,"z":199.239,"b":47.16,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"D","resSeq":48,"x":197.964,"y":202.356,"z":196.331,"b":49.51,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"D","resSeq":49,"x":201.376,"y":200.781,"z":195.604,"b":51.62,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"D","resSeq":50,"x":199.846,"y":198.79,"z":192.74,"b":50.48,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":51,"x":199.587,"y":202.166,"z":191.034,"b":48.7,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"D","resSeq":52,"x":203.366,"y":202.268,"z":191.353,"b":53.86,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"D","resSeq":53,"x":203.574,"y":198.832,"z":189.753,"b":53.23,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"D","resSeq":54,"x":201.448,"y":200.103,"z":186.865,"b":52.86,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":55,"x":203.748,"y":203.122,"z":186.567,"b":54.09,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"D","resSeq":56,"x":206.702,"y":200.757,"z":186.316,"b":56.67,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"D","resSeq":57,"x":204.902,"y":198.79,"z":183.611,"b":54.9,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"D","resSeq":58,"x":204.413,"y":202.076,"z":181.76,"b":56.0,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"D","resSeq":59,"x":208.103,"y":202.912,"z":182.141,"b":56.61,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"D","resSeq":60,"x":209.399,"y":199.789,"z":180.391,"b":56.98,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"E","resSeq":12,"x":192.635,"y":243.324,"z":197.363,"b":46.8,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"E","resSeq":13,"x":193.828,"y":245.65,"z":194.612,"b":42.29,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":14,"x":194.456,"y":243.169,"z":191.788,"b":45.42,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":15,"x":190.834,"y":242.012,"z":191.663,"b":45.12,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"E","resSeq":16,"x":189.618,"y":245.622,"z":191.801,"b":43.3,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":17,"x":191.748,"y":246.493,"z":188.788,"b":41.73,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":18,"x":190.509,"y":243.348,"z":187.041,"b":44.21,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"E","resSeq":19,"x":186.906,"y":244.443,"z":187.585,"b":45.28,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"E","resSeq":20,"x":187.692,"y":247.976,"z":186.4,"b":42.41,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"E","resSeq":21,"x":189.368,"y":246.827,"z":183.193,"b":45.25,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"E","resSeq":22,"x":186.624,"y":244.29,"z":182.452,"b":45.81,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"E","resSeq":23,"x":184.03,"y":247.007,"z":182.986,"b":47.17,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"E","resSeq":24,"x":185.863,"y":249.35,"z":180.631,"b":46.99,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":25,"x":186.008,"y":246.647,"z":177.959,"b":50.79,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":26,"x":182.287,"y":245.967,"z":178.419,"b":50.37,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":27,"x":181.507,"y":249.684,"z":178.173,"b":48.02,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":28,"x":183.454,"y":249.908,"z":174.914,"b":51.13,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":29,"x":181.545,"y":246.918,"z":173.537,"b":53.31,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":30,"x":178.183,"y":248.353,"z":174.59,"b":51.75,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":31,"x":178.938,"y":251.787,"z":173.146,"b":53.19,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"E","resSeq":32,"x":179.905,"y":250.315,"z":169.78,"b":55.73,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"E","resSeq":33,"x":176.869,"y":248.013,"z":169.722,"b":54.08,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":34,"x":174.487,"y":250.838,"z":170.633,"b":51.51,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"E","resSeq":35,"x":175.966,"y":253.029,"z":167.903,"b":53.75,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":36,"x":175.496,"y":250.23,"z":165.367,"b":52.95,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"E","resSeq":37,"x":171.901,"y":249.569,"z":166.442,"b":50.28,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":38,"x":170.993,"y":253.263,"z":166.364,"b":50.87,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":39,"x":172.444,"y":253.529,"z":162.858,"b":52.17,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":40,"x":170.457,"y":250.464,"z":161.767,"b":47.96,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"E","resSeq":41,"x":167.206,"y":251.839,"z":163.192,"b":46.98,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":42,"x":167.809,"y":255.189,"z":161.501,"b":48.45,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":43,"x":168.439,"y":253.474,"z":158.165,"b":48.96,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":44,"x":165.218,"y":251.483,"z":158.569,"b":46.5,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":45,"x":163.235,"y":254.61,"z":159.42,"b":48.67,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"E","resSeq":46,"x":164.729,"y":256.791,"z":156.669,"b":53.95,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"E","resSeq":47,"x":162.904,"y":255.457,"z":153.594,"b":55.1,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"E","resSeq":48,"x":159.826,"y":254.38,"z":155.602,"b":49.95,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"E","resSeq":49,"x":157.305,"y":257.197,"z":156.125,"b":49.46,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"E","resSeq":50,"x":154.697,"y":254.556,"z":156.935,"b":46.1,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":51,"x":156.941,"y":253.523,"z":159.803,"b":42.96,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"E","resSeq":52,"x":156.742,"y":257.172,"z":160.812,"b":45.5,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"E","resSeq":53,"x":152.957,"y":256.867,"z":160.934,"b":45.67,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"E","resSeq":54,"x":153.321,"y":253.671,"z":162.97,"b":42.84,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":55,"x":155.588,"y":255.545,"z":165.38,"b":45.7,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"E","resSeq":56,"x":152.956,"y":258.266,"z":165.609,"b":44.94,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"E","resSeq":57,"x":150.199,"y":255.804,"z":166.452,"b":42.07,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"E","resSeq":58,"x":152.536,"y":254.186,"z":168.989,"b":40.49,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"E","resSeq":59,"x":152.836,"y":257.606,"z":170.585,"b":44.98,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":60,"x":149.9,"y":260.0,"z":170.686,"b":47.24,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"E","resSeq":61,"x":146.742,"y":258.442,"z":169.27,"b":50.1,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"F","resSeq":12,"x":156.481,"y":243.545,"z":152.313,"b":45.36,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"F","resSeq":13,"x":156.058,"y":245.675,"z":155.428,"b":40.03,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":14,"x":155.508,"y":243.154,"z":158.234,"b":42.27,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":15,"x":159.135,"y":242.001,"z":158.182,"b":43.51,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"F","resSeq":16,"x":160.522,"y":245.544,"z":158.314,"b":41.14,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":17,"x":158.158,"y":246.344,"z":161.179,"b":39.8,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":18,"x":159.527,"y":243.239,"z":162.908,"b":41.41,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"F","resSeq":19,"x":163.088,"y":244.463,"z":162.391,"b":42.77,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"F","resSeq":20,"x":162.198,"y":247.933,"z":163.69,"b":39.78,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"F","resSeq":21,"x":160.551,"y":246.656,"z":166.865,"b":42.41,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"F","resSeq":22,"x":163.386,"y":244.201,"z":167.529,"b":43.1,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"F","resSeq":23,"x":165.912,"y":246.989,"z":167.03,"b":45.1,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"F","resSeq":24,"x":164.062,"y":249.285,"z":169.42,"b":44.74,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":25,"x":163.971,"y":246.535,"z":172.05,"b":47.87,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":26,"x":167.704,"y":245.924,"z":171.588,"b":49.67,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":27,"x":168.474,"y":249.647,"z":171.797,"b":47.92,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":28,"x":166.543,"y":249.935,"z":175.061,"b":53.73,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":29,"x":168.382,"y":246.939,"z":176.517,"b":54.79,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":30,"x":171.762,"y":248.312,"z":175.419,"b":51.82,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":31,"x":171.021,"y":251.725,"z":176.911,"b":55.01,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"F","resSeq":32,"x":170.07,"y":250.15,"z":180.244,"b":56.57,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"F","resSeq":33,"x":173.163,"y":247.935,"z":180.283,"b":55.02,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":34,"x":175.456,"y":250.812,"z":179.304,"b":51.78,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"F","resSeq":35,"x":174.177,"y":253.108,"z":182.038,"b":54.75,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":36,"x":174.48,"y":250.282,"z":184.58,"b":54.0,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"F","resSeq":37,"x":178.079,"y":249.599,"z":183.54,"b":50.7,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":38,"x":178.929,"y":253.303,"z":183.65,"b":51.59,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":39,"x":177.605,"y":253.724,"z":187.184,"b":53.47,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":40,"x":179.385,"y":250.546,"z":188.318,"b":48.94,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"F","resSeq":41,"x":182.692,"y":251.828,"z":186.925,"b":47.35,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":42,"x":182.125,"y":255.197,"z":188.585,"b":50.11,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":43,"x":181.448,"y":253.458,"z":191.905,"b":51.41,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":44,"x":184.681,"y":251.502,"z":191.479,"b":48.19,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":45,"x":186.518,"y":254.754,"z":190.806,"b":49.22,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"F","resSeq":46,"x":185.17,"y":257.115,"z":193.501,"b":56.79,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"F","resSeq":47,"x":187.085,"y":255.651,"z":196.455,"b":54.72,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"F","resSeq":48,"x":190.117,"y":254.574,"z":194.383,"b":49.58,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"F","resSeq":49,"x":192.508,"y":257.425,"z":193.555,"b":49.47,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"F","resSeq":50,"x":195.114,"y":254.76,"z":192.832,"b":46.73,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":51,"x":192.808,"y":253.758,"z":189.999,"b":43.45,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"F","resSeq":52,"x":193.337,"y":257.345,"z":188.876,"b":45.74,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"F","resSeq":53,"x":197.105,"y":256.868,"z":188.986,"b":45.04,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"F","resSeq":54,"x":196.652,"y":253.657,"z":186.996,"b":43.04,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":55,"x":194.617,"y":255.615,"z":184.45,"b":46.58,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"F","resSeq":56,"x":197.383,"y":258.208,"z":184.272,"b":46.0,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"F","resSeq":57,"x":199.891,"y":255.454,"z":183.547,"b":44.62,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"F","resSeq":58,"x":197.515,"y":254.099,"z":180.897,"b":43.48,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"F","resSeq":59,"x":197.501,"y":257.573,"z":179.355,"b":46.39,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"F","resSeq":60,"x":200.997,"y":258.859,"z":180.089,"b":47.09,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"G","resSeq":12,"x":152.655,"y":251.165,"z":177.321,"b":42.55,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"G","resSeq":13,"x":151.987,"y":250.748,"z":173.597,"b":42.07,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":14,"x":155.233,"y":249.698,"z":171.924,"b":41.88,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":15,"x":155.503,"y":246.602,"z":174.13,"b":42.68,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"G","resSeq":16,"x":152.031,"y":245.52,"z":173.018,"b":43.13,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":17,"x":152.967,"y":246.109,"z":169.379,"b":39.97,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":18,"x":156.186,"y":244.117,"z":169.762,"b":44.92,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"G","resSeq":19,"x":154.383,"y":241.233,"z":171.456,"b":43.82,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"G","resSeq":20,"x":151.741,"y":241.192,"z":168.716,"b":42.13,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"G","resSeq":21,"x":154.344,"y":241.204,"z":165.933,"b":41.12,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"G","resSeq":22,"x":156.337,"y":238.412,"z":167.58,"b":42.04,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"G","resSeq":23,"x":153.138,"y":236.416,"z":168.0,"b":43.91,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"G","resSeq":24,"x":152.173,"y":236.888,"z":164.355,"b":42.59,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":25,"x":155.599,"y":235.78,"z":163.126,"b":44.59,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":26,"x":155.456,"y":232.75,"z":165.428,"b":43.67,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":27,"x":151.98,"y":231.92,"z":164.118,"b":43.39,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":28,"x":153.161,"y":232.114,"z":160.508,"b":45.08,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":29,"x":156.136,"y":229.859,"z":161.242,"b":45.73,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":30,"x":153.929,"y":227.367,"z":163.087,"b":42.95,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":31,"x":151.409,"y":227.277,"z":160.242,"b":44.48,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"G","resSeq":32,"x":154.133,"y":226.684,"z":157.653,"b":44.39,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"G","resSeq":33,"x":155.793,"y":223.898,"z":159.613,"b":43.13,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":34,"x":152.386,"y":222.357,"z":160.388,"b":41.15,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"G","resSeq":35,"x":151.67,"y":222.254,"z":156.662,"b":41.52,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":36,"x":155.029,"y":220.563,"z":156.083,"b":40.59,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"G","resSeq":37,"x":154.433,"y":217.952,"z":158.802,"b":37.99,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":38,"x":150.898,"y":217.256,"z":157.585,"b":39.2,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":39,"x":152.27,"y":216.671,"z":154.091,"b":37.92,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":40,"x":154.928,"y":214.311,"z":155.462,"b":38.64,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"G","resSeq":41,"x":152.473,"y":212.232,"z":157.492,"b":37.03,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":42,"x":150.019,"y":212.166,"z":154.59,"b":38.66,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":43,"x":152.722,"y":210.75,"z":152.32,"b":41.83,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":44,"x":153.757,"y":208.199,"z":154.959,"b":41.36,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":45,"x":150.194,"y":206.987,"z":155.482,"b":42.04,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"G","resSeq":46,"x":149.473,"y":207.052,"z":151.749,"b":43.83,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"G","resSeq":47,"x":152.34,"y":204.776,"z":150.736,"b":48.45,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"G","resSeq":48,"x":152.004,"y":202.396,"z":153.736,"b":48.82,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"G","resSeq":49,"x":148.58,"y":200.757,"z":154.178,"b":50.85,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"G","resSeq":50,"x":150.013,"y":198.737,"z":157.067,"b":51.27,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":51,"x":150.379,"y":202.101,"z":158.784,"b":48.99,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"G","resSeq":52,"x":146.608,"y":202.38,"z":158.492,"b":54.12,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"G","resSeq":53,"x":146.272,"y":198.912,"z":159.998,"b":53.52,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"G","resSeq":54,"x":148.421,"y":200.01,"z":162.94,"b":51.54,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":55,"x":146.316,"y":203.16,"z":163.296,"b":53.22,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"G","resSeq":56,"x":143.223,"y":200.979,"z":163.519,"b":55.72,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"G","resSeq":57,"x":144.955,"y":198.875,"z":166.166,"b":53.38,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"G","resSeq":58,"x":145.604,"y":202.042,"z":168.171,"b":55.15,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"G","resSeq":59,"x":141.98,"y":203.111,"z":167.761,"b":56.25,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":60,"x":140.332,"y":199.753,"z":168.447,"b":59.83,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"G","resSeq":61,"x":141.083,"y":199.681,"z":172.196,"b":60.12,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"H","resSeq":12,"x":162.477,"y":199.309,"z":156.842,"b":55.46,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"H","resSeq":13,"x":159.054,"y":199.092,"z":158.451,"b":55.01,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":14,"x":160.375,"y":199.994,"z":161.906,"b":58.1,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":15,"x":162.086,"y":203.127,"z":160.582,"b":59.82,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"H","resSeq":16,"x":158.967,"y":204.491,"z":158.896,"b":52.42,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":17,"x":156.885,"y":203.611,"z":161.953,"b":51.56,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":18,"x":159.292,"y":205.701,"z":164.025,"b":57.48,"rec":"ATOM"},{"name":"CA","resName":"GLN","chain":"H","resSeq":19,"x":159.051,"y":208.524,"z":161.485,"b":60.03,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"H","resSeq":20,"x":155.245,"y":208.451,"z":161.487,"b":49.63,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"H","resSeq":21,"x":154.861,"y":208.291,"z":165.268,"b":51.32,"rec":"ATOM"},{"name":"CA","resName":"SER","chain":"H","resSeq":22,"x":157.365,"y":211.103,"z":165.855,"b":53.36,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"H","resSeq":23,"x":155.652,"y":213.149,"z":163.155,"b":50.09,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"H","resSeq":24,"x":152.295,"y":212.646,"z":164.846,"b":50.68,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":25,"x":153.74,"y":213.713,"z":168.201,"b":52.78,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":26,"x":155.176,"y":216.83,"z":166.561,"b":49.59,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":27,"x":151.805,"y":217.464,"z":164.907,"b":46.53,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":28,"x":150.005,"y":217.304,"z":168.253,"b":53.74,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":29,"x":152.513,"y":219.66,"z":169.872,"b":55.27,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":30,"x":152.239,"y":222.051,"z":166.927,"b":47.58,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":31,"x":148.443,"y":222.048,"z":167.039,"b":53.27,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"H","resSeq":32,"x":148.495,"y":222.879,"z":170.748,"b":56.19,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"H","resSeq":33,"x":151.069,"y":225.642,"z":170.28,"b":57.13,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":34,"x":149.223,"y":227.135,"z":167.305,"b":51.04,"rec":"ATOM"},{"name":"CA","resName":"ARG","chain":"H","resSeq":35,"x":145.958,"y":227.182,"z":169.254,"b":54.5,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":36,"x":147.667,"y":228.971,"z":172.148,"b":54.06,"rec":"ATOM"},{"name":"CA","resName":"VAL","chain":"H","resSeq":37,"x":149.327,"y":231.504,"z":169.837,"b":51.03,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":38,"x":146.061,"y":232.19,"z":168.012,"b":51.27,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":39,"x":144.312,"y":232.768,"z":171.34,"b":54.77,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":40,"x":146.994,"y":235.234,"z":172.446,"b":52.75,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"H","resSeq":41,"x":146.919,"y":237.094,"z":169.122,"b":49.47,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":42,"x":143.123,"y":237.271,"z":169.215,"b":54.42,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":43,"x":143.231,"y":238.723,"z":172.732,"b":53.62,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":44,"x":145.813,"y":241.356,"z":171.771,"b":49.1,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":45,"x":143.889,"y":242.245,"z":168.617,"b":48.63,"rec":"ATOM"},{"name":"CA","resName":"ASP","chain":"H","resSeq":46,"x":140.47,"y":242.572,"z":170.223,"b":52.89,"rec":"ATOM"},{"name":"CA","resName":"GLU","chain":"H","resSeq":47,"x":141.461,"y":244.624,"z":173.256,"b":52.3,"rec":"ATOM"},{"name":"CA","resName":"HIS","chain":"H","resSeq":48,"x":143.295,"y":247.271,"z":171.161,"b":49.13,"rec":"ATOM"},{"name":"CA","resName":"PRO","chain":"H","resSeq":49,"x":141.509,"y":248.798,"z":168.136,"b":49.87,"rec":"ATOM"},{"name":"CA","resName":"TRP","chain":"H","resSeq":50,"x":144.667,"y":250.781,"z":167.347,"b":45.64,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":51,"x":146.247,"y":247.366,"z":166.814,"b":43.44,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"H","resSeq":52,"x":143.689,"y":246.781,"z":164.072,"b":46.05,"rec":"ATOM"},{"name":"CA","resName":"ASN","chain":"H","resSeq":53,"x":144.551,"y":250.195,"z":162.663,"b":45.83,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"H","resSeq":54,"x":148.217,"y":249.221,"z":162.425,"b":44.35,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":55,"x":147.229,"y":245.93,"z":160.813,"b":46.17,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"H","resSeq":56,"x":145.253,"y":247.885,"z":158.224,"b":46.02,"rec":"ATOM"},{"name":"CA","resName":"ILE","chain":"H","resSeq":57,"x":148.082,"y":250.265,"z":157.379,"b":44.81,"rec":"ATOM"},{"name":"CA","resName":"LEU","chain":"H","resSeq":58,"x":150.603,"y":247.4,"z":157.417,"b":42.95,"rec":"ATOM"},{"name":"CA","resName":"GLY","chain":"H","resSeq":59,"x":148.486,"y":245.71,"z":154.761,"b":46.91,"rec":"ATOM"},{"name":"CA","resName":"LYS","chain":"H","resSeq":60,"x":149.048,"y":248.612,"z":152.367,"b":46.52,"rec":"ATOM"}],"rnaAtoms":[{"chain":"J","resSeq":3,"resName":"A","x":195.031,"y":173.266,"z":191.206},{"chain":"J","resSeq":4,"resName":"U","x":194.019,"y":177.433,"z":195.211},{"chain":"J","resSeq":5,"resName":"A","x":194.912,"y":181.907,"z":200.194},{"chain":"J","resSeq":6,"resName":"U","x":199.382,"y":183.438,"z":204.227},{"chain":"J","resSeq":7,"resName":"A","x":205.026,"y":183.669,"z":206.724},{"chain":"J","resSeq":8,"resName":"U","x":210.82,"y":181.826,"z":206.121},{"chain":"J","resSeq":9,"resName":"A","x":216.258,"y":182.569,"z":203.49},{"chain":"J","resSeq":10,"resName":"U","x":218.889,"y":183.282,"z":198.108},{"chain":"J","resSeq":11,"resName":"A","x":218.874,"y":186.15,"z":192.952},{"chain":"J","resSeq":12,"resName":"U","x":216.403,"y":189.515,"z":188.539},{"chain":"J","resSeq":13,"resName":"A","x":212.961,"y":193.953,"z":186.506},{"chain":"J","resSeq":14,"resName":"U","x":209.561,"y":198.779,"z":187.637},{"chain":"J","resSeq":15,"resName":"A","x":207.314,"y":203.592,"z":190.499},{"chain":"J","resSeq":16,"resName":"U","x":207.296,"y":207.465,"z":195.288},{"chain":"J","resSeq":17,"resName":"A","x":210.552,"y":210.695,"z":199.389},{"chain":"J","resSeq":18,"resName":"U","x":216.112,"y":211.582,"z":202.266},{"chain":"J","resSeq":19,"resName":"A","x":222.416,"y":212.031,"z":202.122},{"chain":"J","resSeq":20,"resName":"U","x":227.617,"y":212.966,"z":199.164},{"chain":"J","resSeq":25,"resName":"A","x":223.979,"y":208.31,"z":185.637},{"chain":"J","resSeq":26,"resName":"U","x":226.169,"y":204.211,"z":189.93},{"chain":"J","resSeq":27,"resName":"A","x":225.787,"y":202.253,"z":196.035},{"chain":"J","resSeq":28,"resName":"U","x":222.591,"y":202.295,"z":201.579},{"chain":"J","resSeq":29,"resName":"A","x":217.276,"y":201.21,"z":204.808},{"chain":"J","resSeq":30,"resName":"U","x":211.138,"y":200.247,"z":204.799},{"chain":"J","resSeq":31,"resName":"A","x":206.139,"y":198.518,"z":202.038},{"chain":"J","resSeq":32,"resName":"U","x":202.898,"y":196.306,"z":197.401},{"chain":"J","resSeq":33,"resName":"A","x":202.394,"y":192.632,"z":192.597},{"chain":"J","resSeq":34,"resName":"U","x":204.673,"y":188.238,"z":188.977},{"chain":"J","resSeq":35,"resName":"A","x":207.904,"y":183.028,"z":187.872},{"chain":"J","resSeq":36,"resName":"U","x":210.985,"y":178.344,"z":190.101},{"chain":"J","resSeq":37,"resName":"A","x":211.981,"y":173.35,"z":194.007},{"chain":"J","resSeq":38,"resName":"U","x":211.139,"y":171.831,"z":199.978},{"chain":"J","resSeq":39,"resName":"A","x":208.086,"y":171.301,"z":205.124},{"chain":"J","resSeq":40,"resName":"U","x":202.95,"y":171.75,"z":208.178},{"chain":"J","resSeq":41,"resName":"A","x":197.018,"y":171.727,"z":208.059},{"chain":"J","resSeq":42,"resName":"U","x":191.926,"y":171.779,"z":204.576},{"chain":"K","resSeq":1,"resName":"A","x":186.887,"y":218.796,"z":209.123},{"chain":"K","resSeq":2,"resName":"U","x":180.713,"y":219.983,"z":209.593},{"chain":"K","resSeq":3,"resName":"A","x":175.117,"y":220.17,"z":206.722},{"chain":"K","resSeq":4,"resName":"U","x":171.41,"y":220.186,"z":201.899},{"chain":"K","resSeq":5,"resName":"A","x":169.987,"y":218.583,"z":196.084},{"chain":"K","resSeq":6,"resName":"U","x":171.171,"y":215.134,"z":190.963},{"chain":"K","resSeq":7,"resName":"A","x":173.489,"y":210.044,"z":188.186},{"chain":"K","resSeq":8,"resName":"U","x":176.073,"y":204.563,"z":188.771},{"chain":"K","resSeq":9,"resName":"A","x":177.201,"y":199.367,"z":191.973},{"chain":"K","resSeq":10,"resName":"U","x":176.399,"y":196.062,"z":197.031},{"chain":"K","resSeq":11,"resName":"A","x":173.327,"y":194.229,"z":202.142},{"chain":"K","resSeq":12,"resName":"U","x":168.13,"y":194.27,"z":206.041},{"chain":"K","resSeq":13,"resName":"A","x":162.062,"y":195.116,"z":206.601},{"chain":"K","resSeq":14,"resName":"U","x":156.313,"y":196.232,"z":204.322},{"chain":"K","resSeq":15,"resName":"A","x":152.036,"y":195.544,"z":199.996},{"chain":"K","resSeq":16,"resName":"U","x":149.826,"y":193.435,"z":194.807},{"chain":"K","resSeq":17,"resName":"A","x":149.653,"y":189.55,"z":190.122},{"chain":"K","resSeq":18,"resName":"U","x":152.044,"y":184.595,"z":187.567},{"chain":"K","resSeq":19,"resName":"A","x":154.633,"y":178.789,"z":188.946},{"chain":"K","resSeq":20,"resName":"U","x":157.278,"y":176.006,"z":193.754},{"chain":"K","resSeq":25,"resName":"A","x":157.456,"y":177.924,"z":207.435},{"chain":"K","resSeq":26,"resName":"U","x":161.498,"y":179.48,"z":201.886},{"chain":"K","resSeq":27,"resName":"A","x":163.73,"y":181.095,"z":196.146},{"chain":"K","resSeq":28,"resName":"U","x":163.752,"y":184.591,"z":190.884},{"chain":"K","resSeq":29,"resName":"A","x":162.103,"y":189.608,"z":187.193},{"chain":"K","resSeq":30,"resName":"U","x":159.534,"y":195.295,"z":187.125},{"chain":"K","resSeq":31,"resName":"A","x":158.528,"y":201.132,"z":190.466},{"chain":"K","resSeq":32,"resName":"U","x":158.286,"y":204.28,"z":195.695},{"chain":"K","resSeq":33,"resName":"A","x":160.362,"y":205.936,"z":201.114},{"chain":"K","resSeq":34,"resName":"U","x":164.053,"y":205.1,"z":206.009},{"chain":"K","resSeq":35,"resName":"A","x":170.644,"y":205.431,"z":207.194},{"chain":"K","resSeq":36,"resName":"U","x":176.515,"y":204.339,"z":206.113},{"chain":"K","resSeq":37,"resName":"A","x":181.599,"y":204.424,"z":202.567},{"chain":"K","resSeq":38,"resName":"U","x":184.574,"y":206.514,"z":197.593},{"chain":"K","resSeq":39,"resName":"A","x":185.118,"y":210.346,"z":192.709},{"chain":"K","resSeq":40,"resName":"U","x":183.163,"y":215.703,"z":189.909},{"chain":"K","resSeq":41,"resName":"A","x":180.438,"y":221.431,"z":190.148},{"chain":"K","resSeq":42,"resName":"U","x":178.236,"y":226.139,"z":193.512},{"chain":"K","resSeq":43,"resName":"A","x":177.417,"y":229.523,"z":198.77},{"chain":"K","resSeq":44,"resName":"U","x":179.272,"y":230.618,"z":204.618},{"chain":"M","resSeq":3,"resName":"A","x":155.236,"y":173.2,"z":159.099},{"chain":"M","resSeq":4,"resName":"U","x":156.075,"y":177.593,"z":154.725},{"chain":"M","resSeq":5,"resName":"A","x":154.814,"y":180.967,"z":149.591},{"chain":"M","resSeq":6,"resName":"U","x":150.805,"y":182.714,"z":145.36},{"chain":"M","resSeq":7,"resName":"A","x":145.124,"y":183.281,"z":143.062},{"chain":"M","resSeq":8,"resName":"U","x":139.068,"y":182.453,"z":143.545},{"chain":"M","resSeq":9,"resName":"A","x":133.852,"y":182.745,"z":146.502},{"chain":"M","resSeq":10,"resName":"U","x":131.14,"y":183.442,"z":151.808},{"chain":"M","resSeq":11,"resName":"A","x":131.071,"y":186.108,"z":157.126},{"chain":"M","resSeq":12,"resName":"U","x":133.561,"y":189.579,"z":161.382},{"chain":"M","resSeq":13,"resName":"A","x":136.963,"y":194.021,"z":163.459},{"chain":"M","resSeq":14,"resName":"U","x":140.336,"y":198.837,"z":162.224},{"chain":"M","resSeq":15,"resName":"A","x":142.675,"y":203.577,"z":159.35},{"chain":"M","resSeq":16,"resName":"U","x":142.655,"y":207.543,"z":154.62},{"chain":"M","resSeq":17,"resName":"A","x":139.462,"y":210.712,"z":150.438},{"chain":"M","resSeq":18,"resName":"U","x":133.995,"y":211.609,"z":147.442},{"chain":"M","resSeq":19,"resName":"A","x":127.753,"y":212.104,"z":147.591},{"chain":"M","resSeq":20,"resName":"U","x":122.444,"y":212.672,"z":150.644},{"chain":"M","resSeq":25,"resName":"A","x":125.858,"y":208.478,"z":164.418},{"chain":"M","resSeq":26,"resName":"U","x":123.992,"y":204.57,"z":159.872},{"chain":"M","resSeq":27,"resName":"A","x":124.18,"y":202.438,"z":153.848},{"chain":"M","resSeq":28,"resName":"U","x":127.398,"y":202.261,"z":148.295},{"chain":"M","resSeq":29,"resName":"A","x":132.643,"y":201.166,"z":145.127},{"chain":"M","resSeq":30,"resName":"U","x":138.749,"y":200.278,"z":145.084},{"chain":"M","resSeq":31,"resName":"A","x":143.83,"y":198.513,"z":147.754},{"chain":"M","resSeq":32,"resName":"U","x":147.027,"y":196.32,"z":152.388},{"chain":"M","resSeq":33,"resName":"A","x":147.531,"y":192.571,"z":157.111},{"chain":"M","resSeq":34,"resName":"U","x":145.344,"y":188.254,"z":160.834},{"chain":"M","resSeq":35,"resName":"A","x":142.207,"y":183.079,"z":162.051},{"chain":"M","resSeq":36,"resName":"U","x":139.105,"y":178.345,"z":159.941},{"chain":"M","resSeq":37,"resName":"A","x":137.484,"y":174.149,"z":156.014},{"chain":"M","resSeq":38,"resName":"U","x":137.652,"y":172.583,"z":150.006},{"chain":"M","resSeq":39,"resName":"A","x":140.958,"y":171.597,"z":144.794},{"chain":"M","resSeq":40,"resName":"U","x":146.216,"y":170.993,"z":142.134},{"chain":"M","resSeq":41,"resName":"A","x":152.092,"y":171.468,"z":142.164},{"chain":"M","resSeq":42,"resName":"U","x":157.255,"y":172.311,"z":144.94},{"chain":"P","resSeq":1,"resName":"A","x":170.034,"y":219.7,"z":141.206},{"chain":"P","resSeq":2,"resName":"U","x":175.371,"y":220.188,"z":144.173},{"chain":"P","resSeq":3,"resName":"A","x":179.188,"y":219.996,"z":149.112},{"chain":"P","resSeq":4,"resName":"U","x":180.477,"y":217.827,"z":154.783},{"chain":"P","resSeq":5,"resName":"A","x":179.467,"y":213.908,"z":159.465},{"chain":"P","resSeq":6,"resName":"U","x":176.672,"y":208.847,"z":161.986},{"chain":"P","resSeq":7,"resName":"A","x":174.321,"y":203.019,"z":161.236},{"chain":"P","resSeq":8,"resName":"U","x":173.001,"y":198.269,"z":157.437},{"chain":"P","resSeq":9,"resName":"A","x":173.727,"y":195.728,"z":151.978},{"chain":"P","resSeq":10,"resName":"U","x":177.46,"y":194.533,"z":147.459},{"chain":"P","resSeq":11,"resName":"A","x":182.671,"y":194.809,"z":142.612},{"chain":"P","resSeq":12,"resName":"U","x":188.694,"y":195.038,"z":142.744},{"chain":"P","resSeq":13,"resName":"A","x":193.862,"y":196.933,"z":145.765},{"chain":"P","resSeq":14,"resName":"U","x":198.336,"y":194.615,"z":149.318},{"chain":"P","resSeq":15,"resName":"A","x":200.017,"y":193.009,"z":155.17},{"chain":"P","resSeq":16,"resName":"U","x":199.786,"y":189.424,"z":160.031},{"chain":"P","resSeq":17,"resName":"A","x":198.068,"y":184.109,"z":162.703},{"chain":"P","resSeq":18,"resName":"U","x":194.981,"y":178.839,"z":161.925},{"chain":"P","resSeq":19,"resName":"A","x":193.338,"y":173.374,"z":157.926},{"chain":"P","resSeq":20,"resName":"U","x":193.212,"y":168.466,"z":152.813},{"chain":"P","resSeq":25,"resName":"A","x":194.986,"y":174.575,"z":141.594},{"chain":"P","resSeq":26,"resName":"U","x":193.256,"y":177.77,"z":145.518},{"chain":"P","resSeq":27,"resName":"A","x":188.445,"y":179.313,"z":148.927},{"chain":"P","resSeq":28,"resName":"U","x":186.059,"y":181.178,"z":154.11},{"chain":"P","resSeq":29,"resName":"A","x":185.535,"y":185.146,"z":159.555},{"chain":"P","resSeq":30,"resName":"U","x":187.839,"y":190.704,"z":162.874},{"chain":"P","resSeq":31,"resName":"A","x":190.196,"y":197.196,"z":161.426},{"chain":"P","resSeq":32,"resName":"U","x":189.98,"y":201.727,"z":156.362},{"chain":"P","resSeq":33,"resName":"A","x":189.588,"y":205.656,"z":151.664},{"chain":"P","resSeq":34,"resName":"U","x":185.999,"y":206.896,"z":145.885},{"chain":"P","resSeq":35,"resName":"A","x":180.409,"y":207.362,"z":142.832},{"chain":"P","resSeq":36,"resName":"U","x":174.761,"y":205.212,"z":141.658},{"chain":"P","resSeq":37,"resName":"A","x":170.685,"y":205.938,"z":145.155},{"chain":"P","resSeq":38,"resName":"U","x":166.68,"y":204.731,"z":149.421},{"chain":"P","resSeq":39,"resName":"A","x":164.315,"y":207.507,"z":154.236},{"chain":"P","resSeq":40,"resName":"U","x":165.248,"y":211.977,"z":159.107},{"chain":"P","resSeq":41,"resName":"A","x":168.35,"y":217.441,"z":160.605},{"chain":"P","resSeq":42,"resName":"U","x":170.668,"y":221.488,"z":156.411},{"chain":"P","resSeq":43,"resName":"A","x":171.265,"y":226.702,"z":154.051},{"chain":"P","resSeq":44,"resName":"U","x":172.132,"y":230.361,"z":149.566}],"helices":[{"chain":"A","start":12,"end":60},{"chain":"B","start":12,"end":60},{"chain":"C","start":12,"end":60},{"chain":"D","start":12,"end":60},{"chain":"E","start":12,"end":60},{"chain":"F","start":12,"end":60},{"chain":"G","start":12,"end":60},{"chain":"H","start":12,"end":60}],"sheets":[],"rnaChains":["J","K","M","P"]}
+function loadPDB() {
+  const status = document.getElementById('load-status');
+  const empty  = document.getElementById('empty-state');
+  status.textContent = 'Trying RCSB for PDB 9PRC…';
+
+  fetch('https://files.rcsb.org/download/9PRC.pdb')
+    .then(r => { if (!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(text => {
+      if (!text.includes('ATOM')) throw new Error('Not a PDB file');
+      pdbData = parsePDB(text);
+      const n = pdbData.atoms.filter(a => a.rec === 'ATOM').length;
+      status.textContent = 'PDB 9PRC · ' + n + ' atoms (live from RCSB)';
+      status.style.color = '#3fb950';
+      empty.style.display = 'none';
+      buildStructure(pdbData);
+      toast('✓ Loaded PDB 9PRC from RCSB', '#3fb950');
+    })
+    .catch(() => {
+      // Fallback to embedded domain-architecture model
+      status.textContent = 'EBI blocked — using embedded S-HDAg model';
+      status.style.color = '#d29922';
+      try {
+        pdbData = EMBEDDED_9PRC;
+        empty.style.display = 'none';
+        buildStructure(pdbData);
+      } catch(e) {
+        status.textContent = 'Error: ' + e.message;
+        status.style.color = '#f85149';
+      }
+    });
+}
+
+// Also support drag-and-drop of a real PDB file for full-atom view
+function enableDropZone() {
+  const vp = document.getElementById('viewport');
+  vp.addEventListener('dragover', e => e.preventDefault());
+  vp.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        pdbData = parsePDB(ev.target.result);
+        const atomCount = pdbData.atoms.filter(a=>a.rec==='ATOM').length;
+        document.getElementById('load-status').textContent = 'Loaded: ' + atomCount + ' atoms';
+        document.getElementById('load-status').style.color = '#3fb950';
+        document.getElementById('empty-state').style.display = 'none';
+        buildStructure(pdbData);
+      } catch(err) { alert('Could not parse PDB file: ' + err.message); }
+    };
+    reader.readAsText(file);
+  });
+}
+
+// Init
+initThree();
+loadPDB();
+</script>
+</body>
+</html>
